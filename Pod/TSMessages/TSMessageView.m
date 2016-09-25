@@ -11,7 +11,11 @@
 #import "TSBlurView.h"
 #import "TSMessage.h"
 
-#define TSMessageViewMinimumPadding 15.0
+#define TSMessageViewMinimumPadding 0.0 //15.0
+#define TSMessageViewNavBarPadding 10.0
+#define TSMessageViewTextOffsetLeft 6.0
+#define TSMessageViewTextOffsetTop 16.0
+#define TSMessageViewBlurViewAlpha 0.45
 
 #define TSDesignFileName @"TSMessagesDefaultDesign"
 
@@ -43,8 +47,8 @@ static NSMutableDictionary *_notificationDesign;
 @property (nonatomic, strong) UIImageView *iconImageView;
 @property (nonatomic, strong) UIButton *button;
 @property (nonatomic, strong) UIView *borderView;
-@property (nonatomic, strong) UIImageView *backgroundImageView;
-@property (nonatomic, strong) TSBlurView *backgroundBlurView; // Only used in iOS 7
+@property (nonatomic, strong) UIView *backgroundImageView;
+@property (nonatomic, strong) UIView *backgroundBlurView; // Only used in iOS 7
 
 @property (nonatomic, assign) CGFloat textSpaceLeft;
 @property (nonatomic, assign) CGFloat textSpaceRight;
@@ -133,12 +137,10 @@ static NSMutableDictionary *_notificationDesign;
             break;
     }
     self.iconImageView.frame = CGRectMake(self.padding * 2,
-                                          self.padding,
+                                          self.padding + self.extraTopPadding,
                                           image.size.width,
                                           image.size.height);
 }
-
-
 
 
 + (NSMutableDictionary *)notificationDesign
@@ -177,8 +179,13 @@ static NSMutableDictionary *_notificationDesign;
 
 - (CGFloat)padding
 {
-    // Adds 10 padding to to cover navigation bar
-    return self.messagePosition == TSMessageNotificationPositionNavBarOverlay ? TSMessageViewMinimumPadding + 10.0f : TSMessageViewMinimumPadding;
+    // Doesn't take navbar into account anymore, unlike upstream. Handled elsewhere.
+    return TSMessageViewMinimumPadding;
+}
+
+- (CGFloat)extraTopPadding
+{
+    return self.messagePosition == TSMessageNotificationPositionNavBarOverlay ? TSMessageViewNavBarPadding : 0;
 }
 
 - (id)initWithTitle:(NSString *)title
@@ -262,16 +269,30 @@ canBeDismissedByUser:(BOOL)dismissingEnabled
         else
         {
             // On iOS 7 and above use a blur layer instead (not yet finished)
-            _backgroundBlurView = [[TSBlurView alloc] init];
+            if ([UIVisualEffectView class]) {
+                // iOS 8+
+                UIBlurEffect *blur = [UIBlurEffect effectWithStyle:UIBlurEffectStyleLight];
+                UIVisualEffectView *blurView = [[UIVisualEffectView alloc] initWithEffect:blur];
+                
+                UIView *bgView = [[UIView alloc] init];
+                bgView.autoresizingMask = UIViewAutoresizingFlexibleHeight|UIViewAutoresizingFlexibleWidth;
+                bgView.backgroundColor = [[UIColor colorWithHexString:current[@"backgroundColor"]] colorWithAlphaComponent:TSMessageViewBlurViewAlpha];
+                [blurView.contentView addSubview:bgView];
+                
+                _backgroundBlurView = blurView;
+            } else {
+                // iOS 7
+                TSBlurView *customBlur = [[TSBlurView alloc] init];
+                customBlur.blurTintColor = [UIColor colorWithHexString:current[@"backgroundColor"]];
+                _backgroundBlurView = customBlur;
+            }
             self.backgroundBlurView.autoresizingMask = (UIViewAutoresizingFlexibleWidth);
-            self.backgroundBlurView.blurTintColor = [UIColor colorWithHexString:current[@"backgroundColor"]];
             [self addSubview:self.backgroundBlurView];
         }
 
         UIColor *fontColor = [UIColor colorWithHexString:[current valueForKey:@"textColor"]];
-
-
-        self.textSpaceLeft = 2 * padding;
+        
+        self.textSpaceLeft = 2 * padding + TSMessageViewTextOffsetLeft;
         if (image) self.textSpaceLeft += image.size.width + 2 * padding;
 
         // Set up title label
@@ -284,11 +305,9 @@ canBeDismissedByUser:(BOOL)dismissingEnabled
         if (fontName != nil) {
             [self.titleLabel setFont:[UIFont fontWithName:fontName size:fontSize]];
         } else {
-            [self.titleLabel setFont:[UIFont boldSystemFontOfSize:fontSize]];
+            [self.titleLabel setFont:[UIFont systemFontOfSize:fontSize]];
+            //[self.titleLabel setFont:[UIFont boldSystemFontOfSize:fontSize]];
         }
-        [self.titleLabel setShadowColor:[UIColor colorWithHexString:[current valueForKey:@"shadowColor"]]];
-        [self.titleLabel setShadowOffset:CGSizeMake([[current valueForKey:@"shadowOffsetX"] floatValue],
-                                                    [[current valueForKey:@"shadowOffsetY"] floatValue])];
 
         self.titleLabel.numberOfLines = 0;
         self.titleLabel.lineBreakMode = NSLineBreakByWordWrapping;
@@ -314,8 +333,6 @@ canBeDismissedByUser:(BOOL)dismissingEnabled
             } else {
                 [self.contentLabel setFont:[UIFont systemFontOfSize:fontSize]];
             }
-            [self.contentLabel setShadowColor:self.titleLabel.shadowColor];
-            [self.contentLabel setShadowOffset:self.titleLabel.shadowOffset];
             self.contentLabel.lineBreakMode = self.titleLabel.lineBreakMode;
             self.contentLabel.numberOfLines = 0;
 
@@ -350,15 +367,7 @@ canBeDismissedByUser:(BOOL)dismissingEnabled
 
             [self.button setBackgroundImage:buttonBackgroundImage forState:UIControlStateNormal];
             [self.button setTitle:self.buttonTitle forState:UIControlStateNormal];
-
-            UIColor *buttonTitleShadowColor = [UIColor colorWithHexString:[current valueForKey:@"buttonTitleShadowColor"]];
-            if (!buttonTitleShadowColor)
-            {
-                buttonTitleShadowColor = self.titleLabel.shadowColor;
-            }
-
-            [self.button setTitleShadowColor:buttonTitleShadowColor forState:UIControlStateNormal];
-
+            
             UIColor *buttonTitleTextColor = [UIColor colorWithHexString:[current valueForKey:@"buttonTitleTextColor"]];
             if (!buttonTitleTextColor)
             {
@@ -367,8 +376,7 @@ canBeDismissedByUser:(BOOL)dismissingEnabled
 
             [self.button setTitleColor:buttonTitleTextColor forState:UIControlStateNormal];
             self.button.titleLabel.font = [UIFont boldSystemFontOfSize:14.0];
-            self.button.titleLabel.shadowOffset = CGSizeMake([[current valueForKey:@"buttonTitleShadowOffsetX"] floatValue],
-                                                             [[current valueForKey:@"buttonTitleShadowOffsetY"] floatValue]);
+            
             [self.button addTarget:self
                             action:@selector(buttonTapped:)
                   forControlEvents:UIControlEventTouchUpInside];
@@ -446,9 +454,10 @@ canBeDismissedByUser:(BOOL)dismissingEnabled
     CGFloat currentHeight;
     CGFloat screenWidth = self.viewController.view.bounds.size.width;
     CGFloat padding = [self padding];
+    CGFloat extraTopPadding = [self extraTopPadding];
 
     self.titleLabel.frame = CGRectMake(self.textSpaceLeft,
-                                       padding,
+                                       padding + extraTopPadding + TSMessageViewTextOffsetTop,
                                        screenWidth - padding - self.textSpaceLeft - self.textSpaceRight,
                                        0.0);
     [self.titleLabel sizeToFit];
@@ -469,14 +478,14 @@ canBeDismissedByUser:(BOOL)dismissingEnabled
         currentHeight = self.titleLabel.frame.origin.y + self.titleLabel.frame.size.height;
     }
 
-    currentHeight += padding;
+    currentHeight += padding + extraTopPadding;
 
     if (self.iconImageView)
     {
         // Check if that makes the popup larger (height)
-        if (self.iconImageView.frame.origin.y + self.iconImageView.frame.size.height + padding > currentHeight)
+        if (self.iconImageView.frame.origin.y + self.iconImageView.frame.size.height + padding + extraTopPadding > currentHeight)
         {
-            currentHeight = self.iconImageView.frame.origin.y + self.iconImageView.frame.size.height + padding;
+            currentHeight = self.iconImageView.frame.origin.y + self.iconImageView.frame.size.height + padding + extraTopPadding;
         }
         else
         {
@@ -505,10 +514,12 @@ canBeDismissedByUser:(BOOL)dismissingEnabled
 
     if (self.button)
     {
-        self.button.frame = CGRectMake(self.frame.size.width - self.textSpaceRight,
-                                       round((self.frame.size.height / 2.0) - self.button.frame.size.height / 2.0),
+        /*self.button.frame = CGRectMake(self.frame.size.width - self.textSpaceRight,
+                                       //round((self.frame.size.height / 2.0) - self.button.frame.size.height / 2.0),
+                                       TSMessageViewMinimumPadding + TSMessageViewTextOffsetTop,
                                        self.button.frame.size.width,
-                                       self.button.frame.size.height);
+                                       self.button.frame.size.height);*/
+        self.button.center = CGPointMake([self.button center].x, self.titleLabel.center.y);
     }
 
 
